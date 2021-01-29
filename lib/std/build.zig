@@ -1991,7 +1991,7 @@ pub const LibExeObjStep = struct {
 
     /// The value is the path in the cache dir.
     /// Adds a dependency automatically.
-    /// basename refers to the basename of the WriteFileStep
+    /// basename refers to the basename of the WriteFileStep.
     pub fn addBuildOptionWriteFile(
         self: *LibExeObjStep,
         name: []const u8,
