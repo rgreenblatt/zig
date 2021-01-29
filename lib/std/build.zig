@@ -1233,6 +1233,12 @@ const BuildOptionArtifactArg = struct {
     artifact: *LibExeObjStep,
 };
 
+const BuildOptionWriteFileArg = struct {
+    name: []const u8,
+    write_file: *WriteFileStep,
+    basename: []const u8,
+};
+
 pub const LibExeObjStep = struct {
     step: Step,
     builder: *Builder,
@@ -1280,6 +1286,7 @@ pub const LibExeObjStep = struct {
     packages: ArrayList(Pkg),
     build_options_contents: std.ArrayList(u8),
     build_options_artifact_args: std.ArrayList(BuildOptionArtifactArg),
+    build_options_write_file_args: std.ArrayList(BuildOptionWriteFileArg),
 
     object_src: []const u8,
 
@@ -1438,6 +1445,7 @@ pub const LibExeObjStep = struct {
             .object_src = undefined,
             .build_options_contents = std.ArrayList(u8).init(builder.allocator),
             .build_options_artifact_args = std.ArrayList(BuildOptionArtifactArg).init(builder.allocator),
+            .build_options_write_file_args = std.ArrayList(BuildOptionWriteFileArg).init(builder.allocator),
             .c_std = Builder.CStd.C99,
             .override_lib_dir = null,
             .main_pkg_path = null,
@@ -1939,6 +1947,23 @@ pub const LibExeObjStep = struct {
         self.step.dependOn(&artifact.step);
     }
 
+    /// The value is the path in the cache dir.
+    /// Adds a dependency automatically.
+    /// basename refers to the basename of the WriteFileStep
+    pub fn addBuildOptionWriteFile(
+        self: *LibExeObjStep,
+        name: []const u8,
+        write_file: *WriteFileStep,
+        basename: []const u8,
+    ) void {
+        self.build_options_write_file_args.append(.{
+            .name = name,
+            .write_file = write_file,
+            .basename = basename,
+        }) catch unreachable;
+        self.step.dependOn(&write_file.step);
+    }
+
     pub fn addSystemIncludeDir(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(IncludeDir{ .RawPathSystem = self.builder.dupe(path) }) catch unreachable;
     }
@@ -2155,11 +2180,25 @@ pub const LibExeObjStep = struct {
             }
         }
 
-        if (self.build_options_contents.items.len > 0 or self.build_options_artifact_args.items.len > 0) {
-            // Render build artifact options at the last minute, now that the path is known.
+        if (self.build_options_contents.items.len > 0 or
+            self.build_options_artifact_args.items.len > 0 or
+            self.build_options_write_file_args.items.len > 0)
+        {
+            const path_option_fmt = "pub const {s}: []const u8 = \"{}\";\n";
+            // Render build artifact and write file options at the last minute, now that the path is known.
             for (self.build_options_artifact_args.items) |item| {
                 const out = self.build_options_contents.writer();
-                out.print("pub const {s}: []const u8 = \"{}\";\n", .{ item.name, std.zig.fmtEscapes(item.artifact.getOutputPath()) }) catch unreachable;
+                out.print(
+                    path_option_fmt,
+                    .{ item.name, std.zig.fmtEscapes(item.artifact.getOutputPath()) },
+                ) catch unreachable;
+            }
+            for (self.build_options_write_file_args.items) |item| {
+                const out = self.build_options_contents.writer();
+                out.print(
+                    path_option_fmt,
+                    .{ item.name, std.zig.fmtEscapes(item.write_file.getOutputPath(item.basename)) },
+                ) catch unreachable;
             }
 
             const build_options_file = try fs.path.join(
